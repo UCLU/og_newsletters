@@ -1,0 +1,4 @@
+name = Organic Groups (OG) Newsletters
+description = Allows organic groups to send newsletters to members or casual subscribers.
+core = 7.x
+dependencies[] = og (>=7.x-2.x)

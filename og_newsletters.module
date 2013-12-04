@@ -1,0 +1,2158 @@
+<?php
+/**
+ * @file
+ * Main module file for Organic Groups Newsletters.
+ */
+
+// @todo remove this
+include_once 'og_newsletters.email_members.action.inc';
+
+/**
+ * Implements hook_menu().
+ */
+function og_newsletters_menu() {
+
+  // Sitewide items
+
+  $items['admin/groups'] = array(
+    'page callback' => 'og_newsletters_admin_groups_overview_page',
+    'title' => 'Groups',
+    'weight' => 2,
+    'access arguments' => array('access group manager'),
+  );
+
+  $items['admin/groups/overview'] = array(
+    'page callback' => 'og_newsletters_admin_groups_overview_page',
+    'title' => 'Overview',
+    'description' => 'Overview of the groups menu items',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+    'weight' => 1,
+    'access arguments' => array('access group manager'),
+  );
+
+  $items['admin/groups/email-members'] = array(
+    'page callback' => 'og_newsletters_admin_email_members_page',
+    'title' => 'Email members',
+    'description' => 'Allows to filter members of groups and email them',
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 5,
+    'access arguments' => array('email members of any group'),
+  );
+
+  $items['og_newsletters/newsletter-unsubscribe/%/%/%'] = array(
+    'page callback' => 'og_newsletters_newsletter_unsubscribe_callback',
+    'page arguments' => array(2, 3, 4),
+    'title' => 'Unsubscribe from newsletter',
+    'description' => 'Callback function that unsubscribes a user from a group newsletter',
+    'type' => MENU_CALLBACK,
+    'access callback' => TRUE,
+  );
+
+
+  // Items specific for groups
+
+  $items['node/%node/group/email-members'] = array(
+    'page callback' => 'og_newsletters_email_members_page',
+    'page arguments' => array(1),
+    'title' => 'Email members',
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 3,
+    'access callback' => 'og_newsletters_user_access_email_members',
+    'access arguments' => array(1),
+  );
+
+  $items['node/%node/group/manage-newsletter-subscribers'] = array(
+    'page callback' => 'og_newsletters_manage_newsletter_subscribers_page',
+    'page arguments' => array(1),
+    'title' => 'Manage subscribers',
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 4,
+    'access callback' => 'og_newsletters_user_access_manage_newsletter_subscribers',
+    'access arguments' => array(1),
+  );
+
+  $items['node/%node/group/manage-newsletter-subscribers/add-subscriber'] = array(
+    'page callback' => 'og_newsletters_add_newsletter_subscribers_page',
+    'page arguments' => array(1),
+    'title' => 'Add subscriber',
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 1,
+    'access callback' => 'og_newsletters_user_access_manage_newsletter_subscribers',
+    'access arguments' => array(1),
+  );
+
+  $items['node/%node/group/manage-newsletter-subscribers/import-from-csv'] = array(
+    'page callback' => 'og_newsletters_import_newsletter_subscribers_from_csv_page',
+    'page arguments' => array(1),
+    'title' => 'Import subscribers from CSV file',
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 2,
+    'access callback' => 'og_newsletters_user_access_manage_newsletter_subscribers',
+    'access arguments' => array(1),
+  );
+
+  $items['example_subscriptions.csv'] = array(
+    'page callback' => 'og_newsletters_import_newsletter_subscribers_csv_example_page',
+    'title' => 'example_subscriptions.csv',
+    'type' => MENU_CALLBACK,
+    'access callback' => 'og_newsletters_user_access_manage_newsletter_subscribers',
+    'access arguments' => array(1),
+  );
+
+  $items['node/%node/group/send-newsletter'] = array(
+    'page callback' => 'og_newsletters_send_newsletter_page',
+    'page arguments' => array(1),
+    'title' => 'Send newsletter',
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 5,
+    'access callback' => 'og_newsletters_user_access_send_newsletter',
+    'access arguments' => array(1),
+  );
+
+  return $items;
+}
+
+/**
+ * Menu callback. Generates an overview of the actions that can be done with groups.
+ */
+function og_newsletters_admin_groups_overview_page() {
+
+  $items = array();
+
+  $menu_items = og_newsletters_menu();
+
+  foreach ($menu_items as $key => $menu_item) {
+    if (strpos($key, 'admin/groups/') === 0) {
+      $link = l($menu_item['title'], $key);
+      $item = '<p>' . $link . '<br />' . $menu_item['description'] . '</p>';
+      $items[] = $item;
+    }
+  }
+
+  $list = theme('item_list', array('items' => $items));
+
+  return $list;
+}
+
+/**
+ * Menu callback. Allows to search people in groups.
+ */
+function og_newsletters_admin_manage_people_page() {
+  $output = '';
+  $view_contents = _og_newsletters_views_embed_view('og_newsletters_admin_manage_people', 'default');
+  $output .= $view_contents;
+  return $output;
+}
+
+/**
+ * Menu callback. Allows to select members of a group and email them.
+ */
+function og_newsletters_admin_email_members_page() {
+  $view_contents = _og_newsletters_views_embed_view('og_newsletters_admin_email_members', 'default');
+  $output .= $view_contents;
+  return $output;
+}
+
+/**
+ * Menu callback. Allows to search groups.
+ */
+function og_newsletters_admin_manage_groups_page() {
+  $output = '';
+  $view_contents = _og_newsletters_views_embed_view('og_newsletters_admin_manage_groups', 'default');
+  $output .= $view_contents;
+  return $output;
+}
+
+/**
+ * Implements hook_permission().
+ */
+function og_newsletters_permission() {
+  $permissions = array();
+
+  $special_permissions_roles = _og_newsletters_special_permissions_roles();
+
+  foreach ($special_permissions_roles as $role) {
+    $permissions['administer users with ' . $role . ' group role'] = array(
+      'title' => t('Administer users with "' . $role . '" group role'),
+      'description' => t('Allows to bypass the limitation of adding and removing group roles, blocking memerships, etc. to users with "' . $role . '" group role'),
+      'roles' => array(),
+    );
+  }
+
+  $permissions['create subgroup'] = array(
+    'title' => t('Create subgroup'),
+    'description' => t("Allows to create a subgroup of any group"),
+    'roles' => array(),
+  );
+
+  $permissions['allocate members of any group to subgroups'] = array(
+    'title' => t('Allocate members of any group to subgroups'),
+    'description' => t("Allows to allocate members of any group to subgroups"),
+    'roles' => array(),
+  );
+
+  $permissions['email members of any group'] = array(
+    'title' => t('Email members of any group'),
+    'description' => t("Allows to email members of any group"),
+    'roles' => array(),
+  );
+
+  $permissions['manage newsletter subscribers of any group'] = array(
+    'title' => t('Manage newsletter subscribers of any group'),
+    'description' => t("Allows to add and remove newsletter subscribers to any group"),
+    'roles' => array(),
+  );
+
+  $permissions['send newsletters to any group'] = array(
+    'title' => t('Send newsletters to any group'),
+    'description' => t("Allows to send newsletters to members and subscribers of any group"),
+    'roles' => array(),
+  );
+
+  $permissions['access group manager'] = array(
+    'title' => t('Access group manager'),
+    'description' => t("Access to the group manager pages, which allows to search groups, people in groups, etc."),
+    'roles' => array(),
+  );
+
+  return $permissions;
+}
+
+/**
+ * Implements hook_og_permission().
+ */
+function og_newsletters_og_permission() {
+  $permissions = array();
+
+  $permissions['create subgroup'] = array(
+    'title' => t('Create subgroup'),
+    'description' => t("Allows to create a subgroup of the group"),
+    'roles' => array(OG_AUTHENTICATED_ROLE),
+  );
+
+  $permissions['allocate members of group to subgroups'] = array(
+    'title' => t('Allocate members of group to subgroups'),
+    'description' => t("Allows to allocate members of group to subgroups"),
+    'roles' => array(OG_AUTHENTICATED_ROLE),
+  );
+
+  $permissions['email members of group'] = array(
+    'title' => t('Email members of group'),
+    'description' => t("Allows to email members of the group"),
+    'roles' => array(OG_AUTHENTICATED_ROLE),
+  );
+
+  $permissions['manage newsletter subscribers of group'] = array(
+    'title' => t('Manage newsletter subscribers of group'),
+    'description' => t("Allows to add and remove newsletter subscribers to the group"),
+    'roles' => array(OG_AUTHENTICATED_ROLE),
+  );
+
+  $permissions['send newsletters to group'] = array(
+    'title' => t('Send newsletters to group'),
+    'description' => t("Allows to send newsletters to members and subscribers of the group"),
+    'roles' => array(OG_AUTHENTICATED_ROLE),
+  );
+
+  return $permissions;
+}
+
+/**
+ * Access callback that controls access to email members of a group.
+ */
+function og_newsletters_user_access_add_subgroup($group_nid, $uid = NULL) {
+
+  // If uid is passed, check access for this uid, othwerwise for current user.
+  if (empty($uid)) {
+    global $user;
+    $account = $user;
+  }
+  else {
+    $account = user_load($uid);
+  }
+
+  $node = node_load($group_nid);
+
+  // Check that the user has permission to create subgroups (with either general or og permissions)
+  if (user_access('email members', $account) || og_user_access_entity('create subgroup', 'node', $node, $account)) {
+
+    // Check that the group is not a subgroup already
+    // @todo update to OG 7.x-2.x
+    $group_gid = og_newsletters_get_gid_from_nid($group_nid);
+    $parent_gid = og_newsletters_get_parent_gid_from_gid($group_gid);
+    if (empty($parent_gid)) {
+      return TRUE;
+    }
+    else {
+      return FALSE;
+    }
+  }
+  else {
+    return FALSE;
+  }
+}
+
+/**
+ * Access callback that controls access to allocate members to subgroup.
+ */
+function og_newsletters_user_access_allocate_members_to_subgroup($group_nid, $uid = NULL) {
+
+  // If uid is passed, check access for this uid, othwerwise for current user.
+  if (empty($uid)) {
+    global $user;
+    $account = $user;
+  }
+  else {
+    $account = user_load($uid);
+  }
+
+  $node = node_load($group_nid);
+
+  // Check that the user has permission to allocate members to subgroup (with either general or og permissions)
+  if (user_access('allocate members of any group to subgroups', $account) || og_user_access_entity('allocate members of group to subgroups', 'node', $node, $account)) {
+
+    // Check that the group has child groups
+    // @todo update to OG 7.x-2.x
+    $group_gid = og_newsletters_get_gid_from_nid($group_nid);
+    $child_groups = og_newsletters_get_childs_gids_from_gid($group_gid);
+    if (empty($child_groups)) {
+      return FALSE;
+    }
+
+    return TRUE;
+  }
+  else {
+    return FALSE;
+  }
+}
+
+/**
+ * Access callback that controls access to email members of a group.
+ */
+function og_newsletters_user_access_email_members($group_nid, $uid = NULL) {
+
+  // If uid is passed, check access for this uid, othwerwise for current user.
+  if (empty($uid)) {
+    global $user;
+    $account = $user;
+  }
+  else {
+    $account = user_load($uid);
+  }
+
+  $node = node_load($group_nid);
+
+  if (user_access('email members of any group', $account) || og_user_access_entity('email members of group', 'node', $node, $account)) {
+    return TRUE;
+  }
+  else {
+    return FALSE;
+  }
+}
+
+/**
+ * Access callback that controls access to send newsletters to a group.
+ */
+function og_newsletters_user_access_manage_newsletter_subscribers($group_nid, $uid = NULL) {
+  // If uid is passed, check access for this uid, othwerwise for current user.
+  if (empty($uid)) {
+    global $user;
+    $account = $user;
+  }
+  else {
+    $account = user_load($uid);
+  }
+
+  $node = node_load($group_nid);
+
+  if (user_access('manage newsletter subscribers of any group', $account) || og_user_access_entity('manage newsletter subscribers of group', 'node', $node, $account)) {
+    return TRUE;
+  }
+  else {
+    return FALSE;
+  }
+}
+
+/**
+ * Access callback that controls access to send newsletters to a group.
+ */
+function og_newsletters_user_access_send_newsletter($group_nid, $uid = NULL) {
+
+  // If uid is passed, check access for this uid, othwerwise for current user.
+  if (empty($uid)) {
+    global $user;
+    $account = $user;
+  }
+  else {
+    $account = user_load($uid);
+  }
+
+  $node = node_load($group_nid);
+
+  if (user_access('send newsletters to any group', $account) || og_user_access_entity('send newsletters to group', 'node', $node, $account)) {
+    return TRUE;
+  }
+  else {
+    return FALSE;
+  }
+}
+
+/**
+ * Determines if a user has permission to see the newsletter subscribe link of a group
+ */
+function og_newsletters_user_access_see_newsletter_subscribe_link($group_nid, $uid = NULL) {
+
+  // If uid is passed, check access for this uid, othwerwise for current user.
+  if (empty($uid)) {
+    global $user;
+    $account = $user;
+  }
+  else {
+    $account = user_load($uid);
+  }
+
+  // Only users that are not members of a groups should be able to see the subscribe link
+  // @todo update to OG 7.x-2.x
+  $gid = og_newsletters_get_gid_from_nid($group_nid);
+  $user_gids = og_newsletters_get_user_gids($account->uid);
+
+  if (!in_array($gid, $user_gids)) {
+    return TRUE;
+  }
+
+  return FALSE;
+}
+
+/**
+ * Menu callback. Allows to allocate members of a group to a subgroup.
+ */
+function og_newsletters_allocate_members_to_subgroup_page($nid) {
+
+  // @todo update to OG 7.x-2.x
+  $group_gid = og_newsletters_get_gid_from_nid($nid);
+
+  $output = '';
+
+  // views_embed_view doesn't work here due to http://drupal.org/node/525592#comment-1833824
+  // Let's add override_path to the view to get it working
+  $view_name = 'og_newsletters_members_manager';
+  $view_display_id = 'allocate_members_to_subgroup_page';
+
+  $view = views_get_view($view_name);
+  if (!$view || !$view->access($view_display_id)) {
+    return;
+  }
+  $view->override_path = $_GET['q'];
+  // @todo update to OG 7.x-2.x
+  $view_contents = $view->preview($view_display_id, array($group_gid));
+
+
+  $output .= $view_contents;
+
+  return $output;
+}
+
+/**
+ * Menu callback. Allows to email members of a group.
+ */
+function og_newsletters_email_members_page($nid) {
+  // @todo update to OG 7.x-2.x
+  $group_gid = og_newsletters_get_gid_from_nid($nid);
+
+  $output = '';
+
+  // views_embed_view doesn't work here due to http://drupal.org/node/525592#comment-1833824
+  // Let's add override_path to the view to get it working
+  $view_name = 'og_newsletters_members_manager';
+  $view_display_id = 'email_members_page';
+
+  $view = views_get_view($view_name);
+  // Access settings of the view are not considered here, so we should make sure that the access to this
+  // page is properly restricted
+  // @todo check access
+  if (!$view) {
+    return;
+  }
+  $view->override_path = $_GET['q'];
+  // @todo update to OG 7.x-2.x
+  $view_contents = $view->preview($view_display_id, array($group_gid));
+
+
+  $output .= $view_contents;
+
+  return $output;
+}
+
+/**
+ * Menu callback. Allows to manage the newsletter subscribers of a group.
+ */
+function og_newsletters_manage_newsletter_subscribers_page($group_nid) {
+  $output = '';
+
+  // views_embed_view doesn't work here due to http://drupal.org/node/525592#comment-1833824
+  // Let's add override_path to the view to get it working
+  $view_name = 'og_newsletters_newsletter_subscriptions_manager';
+  $view_display_id = 'default';
+
+  $view = views_get_view($view_name);
+  // Access settings of the view are not considered here, so we should make sure that the access to this
+  // page is properly restricted
+  if (!$view) {
+    return;
+  }
+  $view->override_path = $_GET['q'];
+  $view_contents = $view->preview($view_display_id, array($group_nid));
+
+
+  $output .= $view_contents;
+
+  return $output;
+}
+
+/**
+ * Menu callback. Redirects to the user to the "Add newsletter subscription" form
+ */
+function og_newsletters_add_newsletter_subscribers_page($group_nid) {
+  $url = 'admin/structure/entity-type/og_newsletter_subscription/og_newsletter_subscription/add/' . $group_nid;
+  drupal_goto($url, array(
+      'query' => array(
+        'avoid_prepopulate' => 'name|email',
+        'destination' => current_path(),
+      ),
+    ));
+}
+
+/**
+ * Menu callback. Allows to import newsletter subscriptions from a CSV file to a group newsletter.
+ */
+function og_newsletters_import_newsletter_subscribers_from_csv_page($group_nid) {
+  $filename = 'example_subscriptions.csv';
+  $example_file_path = url($filename);
+
+  $content .= t('<p>You can mass import subscriptions uploading a CSV file. The file should have at least a column "email" and an optional column "name".
+You can download an <a href="@example_file_path">example CSV file</a> for reference.</p>', array('@example_file_path' => $example_file_path));
+
+
+  $content .= drupal_render(drupal_get_form('og_newsletters_import_newsletter_subscribers_from_csv_form', $group_nid));
+
+  return $content;
+}
+
+/**
+ * Menu callback. Forces the download of the example CSV file used to import newsletter subscriptions.
+ */
+function og_newsletters_import_newsletter_subscribers_csv_example_page() {
+  $filename = 'example_subscriptions.csv';
+  $example_file_path = drupal_get_path('module', 'og_newsletters') . '/' . $filename;
+
+  header("Content-Description: File Transfer");
+  header("Content-Disposition: attachment; filename=$filename");
+  header("Content-Type: application/zip");
+  header("Content-Transfer-Encoding: binary");
+
+  readfile($example_file_path);
+}
+
+/**
+ * Form to import newsletter subscriptions
+ */
+function og_newsletters_import_newsletter_subscribers_from_csv_form($form, &$form_state, $group_nid) {
+  $form = array();
+
+  $form['#attributes'] = array('enctype' => 'multipart/form-data');
+
+  $form['csv'] = array(
+    '#type' => 'file',
+    '#title' => t('Select a CSV File'),
+    '#size' => 40,
+  );
+
+  $form['group_nid'] = array(
+    '#type' => 'hidden',
+    '#disabled' => TRUE,
+    '#value' => $group_nid,
+  );
+
+  $form['import']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Import'),
+  );
+
+  return $form;
+}
+
+/**
+ * Validate function for the form used to import newsletter subscriptions.
+ */
+function og_newsletters_import_newsletter_subscribers_from_csv_form_validate($form, &$form_state) {
+  $valid = TRUE;
+
+  $filepath = $_FILES['files']['tmp_name']['csv'];
+  $first_row_has_titles = TRUE;
+  $csv_parser_options = array(
+    'csv_separator' => ';',
+    'csv_enclosure' => '"',
+    'csv_linebreak' => "\n",
+  );
+  $csv_array = og_newsletters_csv_to_array($filepath, $first_row_has_titles, $csv_parser_options);
+
+  // Check that the file has at least one row
+  $first_row = $csv_array[0];
+  if (empty($first_row)) {
+    $valid = FALSE;
+    form_set_error('csv', t('The file uploaded hasn\'t got any row. Please check the example file provided.'));
+  }
+
+  // Check that the headers are correct
+  $headers = array_keys($first_row);
+  $valid_headers = array(
+    array('email', 'e-mail', 'mail'),
+    // the name column could be empty
+    array('name', ''),
+  );
+
+  foreach ($valid_headers as $i => $header_values) {
+    if (!in_array(strtolower($headers[$i]), $header_values)) {
+      $valid = FALSE;
+      form_set_error('csv', t('The file hasn\'t got correct headers (The @num_column column should have a header titled <b>@column_name</b>) . Please check the example file provided.', array('@num_column' => '#' . ($i + 1), '@column_name' => $valid_headers[$i][0])));
+    }
+  }
+
+  if ($valid) {
+    $form_state['values']['csv']['csv_array'] = $csv_array;
+  }
+}
+
+/**
+ * Submit function for the form used to import newsletter subscriptions.
+ */
+function og_newsletters_import_newsletter_subscribers_from_csv_form_submit($form, &$form_state) {
+  $csv_array = $form_state['values']['csv']['csv_array'];
+  $group_nid = $form_state['values']['group_nid'];
+
+  $batch_operations = array();
+  foreach ($csv_array as $row_i => $csv_row) {
+    $batch_operations[] = array('_og_newsletters_import_newsletter_subscribers_process_csv_row', array($row_i, $csv_row, $group_nid));
+  }
+
+  $batch = array(
+    'title' => t('Importing from newsletter subscriptions from CSV file'),
+    'operations' => $batch_operations,
+    'finished' => '_og_newsletters_import_newsletter_subscribers_batch_finish_action',
+  );
+
+  batch_set($batch);
+  batch_process($redirect_path);
+}
+
+/**
+ * Process a row of the csv file inserting a newsletter subscription.
+ * This should be called from a batch operation.
+ */
+function _og_newsletters_import_newsletter_subscribers_process_csv_row($row_i, $csv_row, $group_nid, &$context) {
+  // Rename keys
+  $csv_row = array_values($csv_row);
+
+  $email = $csv_row[0];
+  $name = $csv_row[1];
+
+  $result = og_newsletters_insert_newsletter_subscription($group_nid, $email, $name);
+
+  $context['results'][] = array('row' => $row_i, 'group_nid' => $group_nid, 'email' => $email, 'name' => $name, 'result' => $result);
+}
+
+/**
+ * This function is called after finish importing all the rows from a csv file.
+ * It shows a summary with the results of the import.
+ */
+function _og_newsletters_import_newsletter_subscribers_batch_finish_action($success, $results, $operations) {
+  // Show summary of results
+  $messages = array();
+
+  // Create summary texts
+  foreach ($results as $result) {
+    $row_i = $result['row'];
+    $email = $result['email'];
+    $name = $result['name'];
+
+    $row_text = t('row #@row_i - email: @email - name: @name', array('@row_i' => ($row_i + 2), '@email' => $email, '@name' => $name));
+
+
+    if ($result['result'] === 1) {
+      $messages['success'][] = $row_text;
+    }
+    elseif ($result['result'] === -1) {
+      $messages['already_saved'][] = $row_text;
+    }
+    elseif ($result['result'] === -2) {
+      $messages['email_error'][] = $row_text;
+    }
+    else {
+      // should be FALSE
+      $messages['error'][] = $row_text;
+    }
+  }
+
+
+  // Show summary messages
+  if (!empty($messages['error'])) {
+    $count_error = count($messages['error']);
+    drupal_set_message('<b>' . $count_error . ' newsletter subscriptions couldn\'t be created:</b>' . theme('item_list', array('items' => $messages['error'])), 'error');
+  }
+
+  if (!empty($messages['email_error'])) {
+    $count_email_error = count($messages['email_error']);
+    drupal_set_message('<b>' . $count_email_error . ' newsletter subscriptions couldn\'t be created because the email address is not correct:</b>' . theme('item_list', array('items' => $messages['email_error'])), 'error');
+  }
+
+  if (!empty($messages['already_saved'])) {
+    $count_already_saved = count($messages['already_saved']);
+    drupal_set_message('<b>' . $count_already_saved . ' newsletter subscriptions already existed and haven\'t been imported:</b> ' . theme('item_list', array('items' => $messages['already_saved'])), 'warning');
+  }
+
+  if (!empty($messages['success'])) {
+    $count_success = count($messages['success']);
+    drupal_set_message('<b>' . $count_success . ' newsletter subscriptions have been successfully added.</b>');
+  }
+}
+
+/**
+ * Menu callback function that unsubscribes a user from a group newsletter
+ */
+function og_newsletters_newsletter_unsubscribe_callback($group_nid, $email, $token) {
+
+  //Validate token
+  $token2 = _og_newsletters_generate_newsletter_unsubscribe_token($group_nid, $email);
+
+  if ($token == $token2) {
+
+    $result = og_newsletters_newsletter_remove_subscription($group_nid, $email);
+
+    if ($result === 0) {
+      drupal_set_message(t('Your email address was already removed from the newsletter'));
+    }
+    elseif ($result === 1) {
+      drupal_set_message(t('You have been successfully removed from the newsletter'));
+    }
+    else {
+      // should be -1
+      $site_email = variable_get('site_mail', '');
+      drupal_set_message(t('There has been an error when trying to unsubscribe you from the newsletter. Please contact @email to require a manual deletion.', array('@email' => $site_email)), 'error');
+    }
+
+    drupal_goto('node/' . $group_nid);
+  }
+  else {
+    drupal_access_denied();
+  }
+
+  // @todo Do we need this?
+  return "";
+}
+
+/**
+ * Deletes a newsletter subscription
+ *   $group_nid: The group node nid
+ *   $email: The email to unsubscribe
+ *
+ *   returns:
+ *     -1: if there was and error
+ *     1: if successful deletion
+ *     0: if the subscription wasn't found (which probaly means that the link was already clicked)
+ */
+function og_newsletters_newsletter_remove_subscription($group_nid, $email) {
+
+  $results = og_newsletters_get_newsletter_subscriptions($group_nid, $email);
+
+  // No results, so the user has probably unsubscribed already
+  if (count($results) == 0) {
+    return 0;
+  }
+
+  // There should be only one result, but just in case get all ids and delete them all at once
+  $ids = array_keys($results);
+  $result_deletion = entity_delete_multiple('og_newsletter_subscription', $ids);
+
+  if ($result_deletion === FALSE) {
+    return - 1;
+  }
+  else {
+    return 1;
+  }
+}
+
+/**
+ * Returns an array of newsletter subscriptions. Posible to filter subscriptions by email and group nid.
+ */
+function og_newsletters_get_newsletter_subscriptions($group_nid = NULL, $email = NULL) {
+  // Find newsletter subscription
+  $query = new EntityFieldQuery();
+  $query->entityCondition('entity_type', 'og_newsletter_subscription')->propertyCondition('type', 'og_newsletter_subscription');
+
+  if ($group_nid !== NULL) {
+    $query->fieldCondition('field_og_newsletter_subscription_group', 'target_id', $group_nid, '=');
+  }
+  if ($email !== NULL) {
+    $query->fieldCondition('field_og_newsletter_subscription_email', 'email', $email, '=');
+  }
+
+  $result = $query->execute();
+
+  $results = $result['og_newsletter_subscription'];
+  return $results;
+}
+
+/**
+ * Callback page. Allows to send a newsletter
+ */
+function og_newsletters_send_newsletter_page($nid) {
+  $form = drupal_get_form('og_newsletters_send_newsletter_form', $nid);
+  return $form;
+}
+
+/**
+ * Form used to send newsletters to a group
+ *  $nid: The group node nid
+ */
+function og_newsletters_send_newsletter_form($form, &$form_state, $nid) {
+  $form = array();
+
+  // We don't need to distinguish between members and non-members anymore
+  //$to_options = array(
+  //  'subscribed_non_members' => t('Subscribed non-members'),
+  //  'subscribed_members' => t('Subscribed members'),
+  //);
+  //
+  //$form['to_options'] = array(
+  //  '#title' => t('To'),
+  //  '#description' => t('Select which group of users should receive the newsletter. Users that are members and also subscribers of the group will receive only one email.'),
+  //  '#type' => 'checkboxes',
+  //  '#required' => TRUE,
+  //  '#options' => $to_options,
+  //);
+
+  $form['group_nid'] = array(
+    '#type' => 'hidden',
+    '#disabled' => TRUE,
+    '#value' => $nid,
+  );
+
+  $form['reply_to'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Reply-To address'),
+    '#description' => t('Specify the email address where replies can be received.'),
+    '#required' => TRUE,
+  );
+
+  // The default value of the Reply-To field should be the Club or Society's email field
+  $group_node = node_load($nid);
+  $node_wrapper = entity_metadata_wrapper('node', $group_node);
+  $default_reply_to = $node_wrapper->field_email->value();
+  if ($default_reply_to) {
+    $form['reply_to']['#default_value'] = $default_reply_to;
+  }
+
+  $form['subject'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Subject'),
+    '#required' => TRUE,
+  );
+
+  $form['body'] = array(
+    '#type' => 'textarea',
+    '#title' => t('Body'),
+    '#required' => TRUE,
+    '#type' => 'text_format',
+    '#format' => 'transactional_email',
+  );
+
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => 'Send newsletter',
+  );
+
+  return $form;
+}
+
+
+/**
+ * Validate callback for the form og_newsletters_send_newsletter_form.
+ */
+function og_newsletters_send_newsletter_form_validate($form, &$form_state) {
+  // Validate Reply-To address
+  $reply_to = $form_state['values']['reply_to'];
+  if (!valid_email_address($reply_to)) {
+    form_set_error('reply_to', t('You must specify a valid email address'));
+  }
+
+}
+
+
+/**
+ * Submit callback for the form og_newsletters_send_newsletter_form.
+ */
+function og_newsletters_send_newsletter_form_submit($form, &$form_state) {
+
+  // Group nid
+  $group_nid = $form_state['values']['group_nid'];
+
+  // We don't need to distinguish between members and non-members anymore
+  // To
+  //$to_options_values = $form_state['values']['to_options'];
+  //$to_options = array_filter($to_options_values);
+  //
+  //$users_info = array();
+  //foreach ($to_options as $to_option) {
+  //  $option = $to_option;
+  //  $users = og_newsletters_get_newsletter_subscribers($group_nid, $option);
+  //  $users_info = array_merge_recursive($users_info, $users);
+  //}
+
+  // Reply-To
+  $options['reply_to'] = $form_state['values']['reply_to'];
+
+
+  $users_info = og_newsletters_get_newsletter_subscribers($group_nid);
+
+  // remove duplicates
+  $users_unique = array();
+  foreach ($users_info as $user_info) {
+    $users_unique[$user_info['email']] = $user_info;
+  }
+  $users_unique = array_values($users_unique);
+
+  //merge all users into a "To" field
+  $to_values_array = array();
+  foreach ($users_unique as $user_info) {
+    // Name not supported yet by mandrill module
+
+    //if (!empty($user_info['name'])) {
+    //  $to_values_array[]= $user_info['name'] . ' <' . $user_info['email']  . '>';
+    //}
+    //else {
+    //  $to_values_array[]= $user_info['email'] . ' <' . $user_info['email']  . '>';
+    //}
+
+    $to_values_array[] = $user_info['email'];
+  }
+
+  // Subject
+  $subject = $form_state['values']['subject'];
+
+  foreach ($to_values_array as $to) {
+    // Body + unsubscribe text
+    $body = $form_state['values']['body']['value'];
+    $body .= og_newsletters_unsubscribe_text($group_nid, $to);
+    $body = check_markup($body, $form_state['values']['body']['format']);
+
+    // Send email
+    $result_message = og_newsletters_send_email($to, $subject, $body, $options);
+    if ($result_message['result']) {
+      drupal_set_message(t('The newsletter has been sent successfully to @to', array('@to' => check_plain($to))));
+    }
+    else {
+      drupal_set_message(t('Error. The email couldn\'t been sent to @to', array('@to' => check_plain($to))), 'error');
+    }
+  }
+}
+
+/**
+ * Generates the unsubscribe text that is appended to all the newsletters
+ *  $group_nid: The group node nid
+ *  $to: The email address
+ */
+function og_newsletters_unsubscribe_text($group_nid, $email) {
+  $group_node = node_load($group_nid);
+  $group_name = check_plain($group_node->title);
+  $group_url = url('node/' . $group_nid, array('absolute' => TRUE));
+
+  $unsubscribe_url = _og_newsletters_generate_newsletter_unsubscribe_url($group_nid, $email);
+
+
+  $text = t('You are receiving this email at the account @email because you are subscribed to the <a href="@group_url">@group_name</a> newsletter.
+            To unsubscribe from this newsletter and stop receiving these notifications, please click here: @unsubscribe_url',
+    array(
+      '@email' => $email,
+      '@group_url' => $group_url,
+      '@group_name' => $group_name,
+      '@unsubscribe_url' => $unsubscribe_url,
+    )
+  );
+
+  //$text = t("You are receiving this email at the account $email because you are subscribed to the $group_link newsletter.
+  //          To unsubscribe from this newsletter and stop receiving these notifications, please click here: $unsubscribe_url");
+
+  $text = '<p><small>' . $text . '</small></p>';
+
+  return $text;
+}
+
+/**
+ * Generates a unsubscribe url for a given group and email
+ */
+function _og_newsletters_generate_newsletter_unsubscribe_url($group_nid, $email) {
+  $token = _og_newsletters_generate_newsletter_unsubscribe_token($group_nid, $email);
+  $path = 'og_newsletters/newsletter-unsubscribe/' . $group_nid . '/' . $email . '/' . $token;
+  $url = url($path, array('absolute' => TRUE));
+  return $url;
+}
+
+/**
+ * Generates a unsubscribe token for a given email
+ */
+function _og_newsletters_generate_newsletter_unsubscribe_token($group_nid, $email) {
+  $key = variable_get('og_newsletters_newsletter_unsubscribe_key', 'og_newsletters');
+  $token = md5($group_nid . $email . $key);
+  return $token;
+}
+
+/**
+ * Returns an array of subscribers of a group newsletter
+ * - $group_nid: The group nid
+ * - $option: 'subscribed_non_members', 'subscribed_members' or NULL
+ */
+function og_newsletters_get_newsletter_subscribers($group_nid, $option = NULL) {
+  $users = array();
+
+  // Prepare arguments
+  if ($option == 'subscribed_non_members') {
+    $filter_uid = TRUE;
+    $filter_uid_value = 0;
+    $filter_uid_operator = '=';
+  }
+  elseif ($option == 'subscribed_members') {
+    $filter_uid = TRUE;
+    $filter_uid_value = 0;
+    $filter_uid_operator = '!=';
+  }
+  else {
+    // must be 'subscribed_members'
+    $filter_uid = FALSE;
+  }
+
+  $view = views_get_view('og_newsletters_get_newsletter_subscribers');
+  $display = 'default';
+
+  // Set filter by uid
+  if ($filter_uid) {
+    $filter_uid = $view->get_item($display, 'filter', 'uid');
+    $filter_uid['value']['value'] = $filter_uid_value;
+    $filter_uid['operator'] = $filter_uid_operator;
+    $view->set_item($display, 'filter', 'uid', $filter_uid);
+  }
+  else {
+    $view->set_item($display, 'filter', 'uid', NULL);
+  }
+
+  // Execute view
+  $view->preview($display, array($group_nid));
+
+  if (!empty($view->result)) {
+    foreach ($view->result as $result) {
+      $subscriber = array(
+        'uid' => $result->eck_og_newsletter_subscription_uid,
+        'name' => $result->field_field_og_newsletter_subscription_name[0]['raw']['value'],
+        'email' => $result->field_field_og_newsletter_subscription_email[0]['raw']['email'],
+        'created' => $result->eck_og_newsletter_subscription_created,
+        'type' => $option,
+      );
+      $users[] = $subscriber;
+    }
+  }
+
+  return $users;
+}
+
+/**
+ * Implements hook_action_info().
+ */
+function og_newsletters_action_info() {
+
+  $actions = array(
+    // Needed functions are in og_newsletters.allocate_members_to_subgroup.action.inc
+    'og_newsletters_allocate_members_to_subgroup_action' => array(
+      'label' => t('Allocate selected members to subgroup'),
+      'type' => 'user',
+      'configurable' => TRUE,
+    ),
+    // Needed functions are in og_newsletters.email_members.action.inc
+    'og_newsletters_email_members_action' => array(
+      'label' => t('Email selected members'),
+      'type' => 'user',
+      'configurable' => TRUE,
+    ),
+  );
+
+  return $actions;
+}
+
+/**
+ * Form to add a subgroup to another group
+ */
+function og_newsletters_add_subgroup_form($form, &$form_state, $nid) {
+  $group_node = node_load($nid);
+  $group_name = $group_node->title;
+
+  // @todo update to OG 7.x-2.x
+  $group_gid = og_newsletters_get_gid_from_nid($nid);
+  $existing_subgroups_gids = og_newsletters_get_childs_gids_from_gid($group_gid);
+
+  // Show the name of the parent group
+  $intro_text = '<p>' . t('You are going to create a subgroup of <b>@group_name</b>.', array('@group_name' => $group_name)) . '</p>';
+
+  // Show the name of the existing subgroups
+  // @todo update to OG 7.x-2.x
+  if (!empty($existing_subgroups_gids)) {
+    $existing_subgroups_links = array();
+    foreach ($existing_subgroups_gids as $existing_subgroup_gid) {
+      $existing_subgroup_nid = og_newsletters_get_nid_from_gid($existing_subgroup_gid);
+      $existing_subgroup_node = node_load($existing_subgroup_nid);
+      $existing_subgroups_links[] = l($existing_subgroup_node->title, 'node/' . $existing_subgroup_nid);
+    }
+
+    $subgroups_list = theme('item_list', array('items' => $existing_subgroups_links));
+    $intro_text .= '<p>' . t('Other subgroups already created are:') . '</p>';
+    $intro_text .= $subgroups_list;
+  }
+
+
+  $form = array();
+
+  $form['info'] = array(
+    '#type' => 'markup',
+    '#markup' => '<div>' . $intro_text . '</div>',
+  );
+
+  $form['parent_nid'] = array(
+    '#type' => 'hidden',
+    '#title' => t('Parent nid'),
+    '#value' => $nid,
+    '#required' => TRUE,
+    '#disabled' => TRUE,
+  );
+
+  $form['name'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Name of the subgroup'),
+    '#required' => TRUE,
+  );
+
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Create subgroup'),
+  );
+
+  return $form;
+}
+
+/**
+ * Submit callback for og_newsletters_add_subgroup_form form
+ */
+function og_newsletters_add_subgroup_form_submit($form, &$form_state) {
+  $parent_nid = $form_state['values']['parent_nid'];
+  // @todo update to OG 7.x-2.x
+  $parent_gid = og_newsletters_get_gid_from_nid($parent_nid);
+
+  $subgroup_name = $form_state['values']['name'];
+
+  global $user;
+  $account = $user;
+  $account_uid = $user->uid;
+
+  // @todo update to OG 7.x-2.x
+  $subgroup_node = og_newsletters_create_subgroup($parent_gid, $subgroup_name, $account_uid);
+
+  if (empty($subgroup_node)) {
+    drupal_set_message(t('An error occurred creating the subgroup. Please contact the site administrator.'), 'error');
+  }
+  else {
+    // Redirect to the edit group page
+    $form_state['redirect'] = 'node/' . $subgroup_node->nid . '/edit';
+    drupal_set_message(t('The subgroup has been created successfully, but is still not published. Add more information about your group and mark it as published once you are happy with it.'));
+  }
+}
+
+/**
+ * Creates a subgroup of a group
+ *
+ * @todo update to OG 7.x-2.x
+ *
+ * @param parent_gid
+ *   Group id of the parent group
+ * @param subgroup_name
+ *   Name of the subgroup that is going to be created
+ * @param account_uid
+ *   Uid of the user that is going to be manager of the group
+ *
+ * (API function)
+ */
+function og_newsletters_create_subgroup($parent_gid, $subgroup_name, $account_uid) {
+
+  // Create subgroup node
+  $node = new stdClass();
+  // @todo get node type from parent
+  $node->type = 'club_or_society';
+
+  // @todo Not sure who should be the author of the node. admin? user creating the group?
+  $node->uid = 1;
+  //$node->uid = $account_uid;
+
+  $node->title = $subgroup_name;
+  $node->language = LANGUAGE_NONE;
+
+  // @todo update to OG 7.x-2.x
+  $node->group_audience['und'][0]['gid'] = $parent_gid;
+
+  node_save($node);
+
+
+  // Add user to group
+  // @todo update to OG 7.x-2.x
+  $subgroup_gid = og_newsletters_get_gid_from_nid($node->nid);
+  og_newsletters_add_user_to_group($account_uid, $subgroup_gid);
+
+  // Add roles to user in the group
+  $rids_to_grant = _og_newsletters_rids_to_transfer_to_subgroups();
+  foreach ($rids_to_grant as $rid_to_grant) {
+    // @todo update to OG 7.x-2.x
+    og_newsletters_add_role_to_user($subgroup_gid, $account_uid, $rid_to_grant);
+  }
+
+  return $node;
+}
+
+/**
+ * Returns an array of roles for which is needed have special permissions to edit
+ */
+function _og_newsletters_special_permissions_roles() {
+  return array(
+    'owner',
+    'treasurer',
+  );
+}
+
+/**
+ * Roles that will be granted automatically to users on subgroups
+ */
+function _og_newsletters_rids_to_transfer_to_subgroups() {
+  // @todo Make this configurable from a settings page
+  return array(
+    // admin
+    10,
+  );
+}
+
+/**
+ * Implements hook_og_membership_insert().
+ */
+function og_newsletters_og_membership_insert(OgMembership$og_membership) {
+  // When adding a user to a group, we should add it also to the parent group
+  // @todo update to OG 7.x-2.x
+  $gid = $og_membership->gid;
+  $parent_gid = og_newsletters_get_parent_gid_from_gid($gid);
+
+  if (!empty($parent_gid)) {
+    // @todo investigate this hack
+    // This is very hacky... calling to og_newsletters_add_user_to_group doesn't work properly,
+    // so I add the function to a global variable and execute it later in hook_entity_update
+    global $og_newsletters;
+    $og_newsletters['functions'][] = array('og_newsletters_add_user_to_group', $og_membership->etid, $parent_gid);
+  }
+
+
+  // When adding a user to a group, we should subscribe it also to the newsletter of that group
+  $account_uid = $og_membership->etid;
+  // @todo update to OG 7.x-2.x
+  $group_nid = og_newsletters_get_nid_from_gid($gid);
+  og_newsletters_add_newsletter_subscription_to_group($group_nid, $account_uid);
+}
+
+/**
+ * Implements hook_entity_update().
+ */
+function og_newsletters_entity_update($entity, $type) {
+  if ($type == 'user') {
+    global $og_newsletters;
+    if (!empty($og_newsletters['functions'])) {
+      foreach ($og_newsletters['functions'] as $i => $function) {
+        unset($og_newsletters['functions'][$i]);
+        call_user_func($function[0], $function[1], $function[2]);
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_og_membership_delete().
+ */
+function og_newsletters_og_membership_delete(OgMembership$og_membership) {
+  // When removing a user from a group, we should remove it also from the child groups
+  // @todo update to OG 7.x-2.x
+  $gid = $og_membership->gid;
+  $childs_gids = og_newsletters_get_childs_gids_from_gid($gid);
+
+  if (!empty($childs_gids)) {
+    foreach ($childs_gids as $child_gid) {
+      // @todo investigate this hack
+      // This is very hacky... calling to og_newsletters_remove_user_from_group doesn't work properly,
+      // so I add the function to a global variable and execute it later in hook_entity_update
+      global $og_newsletters;
+      $og_newsletters['functions'][] = array('og_newsletters_remove_user_from_group', $og_membership->etid, $child_gid);
+      //$result = og_newsletters_remove_user_from_group($og_membership->etid, $child_gid);
+    }
+  }
+}
+
+/**
+ * Implements hook_og_role_grant().
+ */
+function og_newsletters_og_role_grant($gid, $uid, $rid) {
+  // When adding a transferable role in a group, add also in the subgroups
+  $rids_to_grant = _og_newsletters_rids_to_transfer_to_subgroups();
+  if (in_array($rid, $rids_to_grant)) {
+
+    // Subgroups in this group
+    // @todo update to OG 7.x-2.x
+    $childs_gids = og_newsletters_get_childs_gids_from_gid($gid);
+
+    foreach ($childs_gids as $child_gid) {
+      // Add user to subgroup
+      // @todo update to OG 7.x-2.x
+      og_newsletters_add_user_to_group($uid, $child_gid);
+
+      // Grant roles inside subgroup
+      foreach ($rids_to_grant as $rid_to_grant) {
+        // @todo update to OG 7.x-2.x
+        og_newsletters_add_role_to_user($child_gid, $uid, $rid_to_grant);
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_og_role_revoke().
+ */
+function og_newsletters_og_role_revoke($gid, $uid, $rid) {
+  // When removing a transferable role in a group, remove also in the subgroups
+  $rids_to_revoke = _og_newsletters_rids_to_transfer_to_subgroups();
+  if (in_array($rid, $rids_to_revoke)) {
+
+    // Subgroups in this group
+    $childs_gids = og_newsletters_get_childs_gids_from_gid($gid);
+
+    foreach ($childs_gids as $child_gid) {
+      // Revoke roles inside subgroup
+      foreach ($rids_to_revoke as $rid_to_revoke) {
+        og_newsletters_remove_role_from_user($child_gid, $uid, $rid_to_revoke);
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_blocks_info().
+ */
+function og_newsletters_block_info() {
+  $blocks['newsletter_subscription'] = array(
+    'info' => t('Newsletter subscription'),
+  );
+  return $blocks;
+}
+
+/**
+ * Implements hook_blocks_view().
+ */
+function og_newsletters_block_view($delta = '') {
+  $block = array();
+
+  switch ($delta) {
+    case 'newsletter_subscription':
+      $block += og_newsletters_newsletter_subscribe_block_data();
+      break;
+  }
+  return $block;
+}
+
+/**
+ * Returns an array with the title and content of the subscribe block
+ */
+function og_newsletters_newsletter_subscribe_block_data() {
+
+  // Get current node
+  $group_nid = arg(1);
+
+  $block = array();
+
+
+  // Prepare block title
+  $block['title'] = t('Newsletter');
+
+  // Prepare block content
+
+  global $user;
+  $account = $user;
+  $email = $account->mail;
+
+  if (empty($email)) {
+    $email = FALSE;
+  }
+
+  // Only users that are not members of the group should be able to see the subscribe link
+  $subscriptions = og_newsletters_get_newsletter_subscriptions($group_nid, $email);
+
+  if (empty($subscriptions)) {
+    $link = l(t('Subscribe'), 'admin/structure/entity-type/og_newsletter_subscription/og_newsletter_subscription/add/' . $group_nid);
+  }
+  else {
+    $unsubscribe_url = _og_newsletters_generate_newsletter_unsubscribe_url($group_nid, $email);
+    $link = l(t('Unsubscribe'), $unsubscribe_url);
+  }
+
+  $content = $link;
+
+  $block['content'] = $content;
+
+  return $block;
+}
+
+/**
+ * Implements hook_views_api().
+ */
+function og_newsletters_views_api() {
+  return array("version" => "3.0");
+}
+
+/**
+ * Implements hook_theme_registry_alter().
+ */
+function og_newsletters_theme_registry_alter(&$theme_registry) {
+  // Override the edit roles page.
+  if (!empty($theme_registry['og_ui_user_admin_new_role'])) {
+    $theme_registry['og_ui_user_admin_new_role']['function'] = 'theme_og_newsletters_og_ui_user_admin_new_role';
+    $theme_registry['og_ui_user_admin_new_role']['theme path'] = drupal_get_path('module', 'og_newsletters');
+    unset($theme_registry['og_ui_user_admin_new_role']['file']);
+  }
+}
+
+/**
+ * Overrides og_ui_user_admin_new_role
+ */
+function theme_og_newsletters_og_ui_user_admin_new_role($variables) {
+  $og_global_roles = og_newsletters_global_roles();
+
+  $form = $variables['form'];
+  $header = array(t('Name'), array('data' => t('Operations'), 'colspan' => 2));
+  // The group entity.
+  // @todo update to OG 7.x-2.x
+  if ($gid = $form['gid']['#value']) {
+    $group = og_get_group('group', $gid);
+  }
+
+  // @todo update to OG 7.x-2.x
+  $default_access = $gid && og_is_group_default_access($gid);
+
+  foreach (og_roles($gid) as $rid => $name) {
+    $role_label = og_newsletters_role_label($group, $name);
+    $name_labelled = og_newsletters_name_labelled($role_label, $name);
+
+    $text = !$default_access ? t('edit permissions') : t('view permissions');
+    $path = $gid ? 'group/' . $group->entity_type . '/' . $group->etid . '/admin/people' : 'admin/config/group';
+    $permissions = l($text, $path . '/permissions/' . $rid);
+
+    if (!$default_access && !in_array($name, $og_global_roles)) {
+      $rows[] = array($name_labelled, l(t('edit role'), $path . '/roles/edit/' . $rid), $permissions);
+    }
+    else {
+      $rows[] = array($name_labelled, t('locked'), $permissions);
+    }
+  }
+
+  $rows[] = array(array('data' => drupal_render($form['name']) . drupal_render($form['add']), 'colspan' => 4, 'class' => 'edit-name'));
+
+  $output = drupal_render_children($form);
+  $output .= theme('table', array('header' => $header, 'rows' => $rows));
+
+  return $output;
+}
+
+/**
+ * Implements hook_entity_info_alter().
+ */
+function og_newsletters_entity_info_alter(&$entity_info) {
+  // Set the label callback
+  $entity_info['og_newsletter_subscription']['label callback'] = 'og_newsletters_entity_newsletter_subscription_label_callback';
+}
+
+/**
+ * Callback function that generates the label of the entity og_newsletter_subscription
+ */
+function og_newsletters_entity_newsletter_subscription_label_callback($entity, $entity_type) {
+  $group_nid = $entity->field_og_newsletter_subscription_group['und'][0]['target_id'];
+  $group_node = node_load($group_nid);
+
+  $label = $entity->field_og_newsletter_subscription_email['und'][0]['email'];
+
+  if (!empty($entity->field_og_newsletter_subscription_name['und'][0]['safe_value'])) {
+    $label .= ' (' . $entity->field_og_newsletter_subscription_name['und'][0]['safe_value'] . ') ';
+  }
+
+  $label .= ' subscription to ' . check_plain($group_node->title);
+
+  return $label;
+}
+
+/**
+ * Implements hook_form_alter().
+ */
+function og_newsletters_form_alter(&$form, &$form_state, $form_id) {
+
+  // Limit the selection of parents groups to one
+  // done in og_newsletters_field_widget_form_alter().
+
+
+  // Modify the "Add subscriptions" form
+  if ($form_id == 'eck__entity__form_add_og_newsletter_subscription_og_newsletter_subscription') {
+    global $user;
+
+    // Some fields are prepopulated by default, unless we specify it in the url
+    $avoid_prepopulate = $_GET['avoid_prepopulate'];
+    $avoid_prepopulate_array = explode('|', $avoid_prepopulate);
+
+    // Prepopulate and hide Club or Society
+    // @todo remove/generalise this to other node types.
+    if (!in_array('club_or_society', $avoid_prepopulate_array)) {
+      $arg = arg();
+      $nid = array_pop($arg);
+      $node = node_load($nid);
+      if ($node->type == 'club_or_society') {
+        $default_value = check_plain($node->title . ' (' . $node->nid . ')');
+        $form['field_og_newsletter_subscription_group']['und'][0]['target_id']['#default_value'] = $default_value;
+        $form['field_og_newsletter_subscription_group']['und'][0]['target_id']['#type'] = 'hidden';
+      }
+    }
+
+    // Prepopulate email
+    if (!in_array('email', $avoid_prepopulate_array)) {
+      if (!empty($user->mail)) {
+        $form['field_og_newsletter_subscription_email']['und'][0]['email']['#default_value'] = $user->mail;
+      }
+    }
+
+    // Prepopulate name
+    if (!in_array('name', $avoid_prepopulate_array)) {
+      if (!empty($user->name)) {
+        $form['field_og_newsletter_subscription_name']['und'][0]['value']['#default_value'] = $user->name;
+      }
+    }
+
+    // Set page title and breadcrumb
+    drupal_set_title(t('Subscribe'));
+
+    // Add validation function
+    $form['#validate'][] = 'og_newsletters_add_subscription_validate';
+
+    // Alter confirmation message
+    $form['#submit'][] = 'og_newsletters_alter_newsletter_subscription_message';
+    $form['#submit'][] = 'og_newsletters_alter_newsletter_redirect';
+  }
+
+  if ($form_id == 'eck__entity__form_edit_og_newsletter_subscription_og_newsletter_subscription') {
+    // Alter confirmation message
+    $form['#submit'][] = 'og_newsletters_alter_newsletter_subscription_message';
+    $form['#submit'][] = 'og_newsletters_alter_newsletter_redirect';
+  }
+}
+
+/**
+ * Form validate callback function. Checks that the email address is not subscribed already to a group newsletter
+ */
+function og_newsletters_add_subscription_validate($form, &$form_state) {
+  $group_nid = $form_state['values']['field_og_newsletter_subscription_group']['und'][0]['target_id'];
+  $group_node = node_load($group_nid);
+  $group_name = check_plain($group_node->title);
+
+  $email = $form_state['values']['field_og_newsletter_subscription_email']['und'][0]['email'];
+
+  if (og_newsletters_email_is_subscribed_to_group($email, $group_nid)) {
+    $message = t('Error. This email address is already subscribed to the <b>@group_name</b> newsletter.', array('@group_name' => $group_name));
+    form_set_error('field_og_newsletter_subscription_email', $message);
+  }
+}
+
+/**
+ * Form submit callback function that alters newsletters subscriptions confirmation messages
+ */
+function og_newsletters_alter_newsletter_subscription_message($form, &$form_state) {
+  // Get info about the the group
+  $group_nid = $form_state['values']['field_og_newsletter_subscription_group']['und'][0]['target_id'];
+  $group_node = node_load($group_nid);
+  $group_name = check_plain($group_node->title);
+
+  // Array with all cases.
+  // - form_id: id of the form
+  // - match: if this string is matched the message will be replaced with 'message'
+  // - message: the message that will be shown instead
+  $alterations = array();
+  $alterations[] = array(
+    'form_id' => 'eck__entity__form_add_og_newsletter_subscription_og_newsletter_subscription',
+    'match' => 'has been saved',
+    'message' => t('Subscription successfully added to the <b>@group_name</b> newsletter.', array('@group_name' => $group_name)),
+  );
+  $alterations[] = array(
+    'form_id' => 'eck__entity__form_edit_og_newsletter_subscription_og_newsletter_subscription',
+    'match' => 'has been saved',
+    'message' => t('Subscription to <b>@group_name</b> newsletter successfully edited.', array('@group_name' => $group_name)),
+  );
+
+
+  // Alter messages when necessary
+  $form_id = $form_state['build_info']['form_id'];
+
+  foreach ($alterations as $alteration) {
+    if ($alteration['form_id'] == $form_id) {
+
+      if (!empty($GLOBALS['_SESSION']['messages']['status'])) {
+        foreach ($GLOBALS['_SESSION']['messages']['status'] as $i => $message) {
+          if (strpos($message, $alteration['match']) !== FALSE) {
+            unset($GLOBALS['_SESSION']['messages']['status'][$i]);
+            drupal_set_message($alteration['message']);
+          }
+        }
+      }
+
+      $GLOBALS['_SESSION']['messages']['status'] = array_values($GLOBALS['_SESSION']['messages']['status']);
+    }
+  }
+}
+
+/**
+ * Form submit callback function that alters the redirect of the submit newsletter form
+ */
+function og_newsletters_alter_newsletter_redirect($form, &$form_state) {
+  $destination = check_plain($_GET['destination']);
+
+  if (empty($destination)) {
+    $group_nid = $form_state['values']['field_og_newsletter_subscription_group']['und'][0]['target_id'];
+    $form_state['redirect'] = 'node/' . $group_nid;
+  }
+  else {
+    $form_state['redirect'] = $destination;
+  }
+}
+
+/**
+ * Implements hook_field_widget_form_alter().
+ *
+ * Limit the selection of parents groups to one
+ *
+ * We can't do it changing the config of the field to single value because this affects also
+ * to the field groups_audience of the user entity, which should be able to select unlimited groups
+ * See http://drupal.org/node/1126228
+ */
+function og_newsletters_field_widget_form_alter(&$element, &$form_state, $context) {
+  // @todo update to OG 7.x-2.x and remove hard-coding of node type
+  if ($element['#field_name'] == 'group_audience' && $element['#bundle'] == 'club_or_society') {
+    $element['#multiple'] = FALSE;
+    if ($element['#empty_option']['#required'] == FALSE) {
+      $element['#empty_option'] = t('- Select -');
+    }
+  }
+}
+
+/**
+ * Validate function added to the form 'og_ui_user_admin_account' to check if the user is trying
+ * to edit anything related to a member with an special role
+ */
+function og_newsletters_edit_special_role_validate($form, &$form_state) {
+
+  $special_roles = _og_newsletters_special_permissions_roles();
+
+  // Check for which special roles the user has permissions
+  $roles_with_permission = array();
+  $roles_without_permission = array();
+  foreach ($special_roles as $role) {
+    if (user_access('administer users with ' . $role . ' group role')) {
+      $roles_with_permission[] = $role;
+    }
+    else {
+      $roles_without_permission[] = $role;
+    }
+  }
+
+  // @todo update to OG 7.x-2.x
+  $gid = $form_state['values']['group']->gid;
+
+  $error_uids = array();
+
+  $accounts_uids_all = $form_state['input']['accounts'];
+  $accounts_uids = array_values(array_filter($accounts_uids_all));
+  foreach ($accounts_uids as $account_uid) {
+    $account_og_roles = og_get_user_roles_name(og_get_user_roles($gid, $account_uid));
+    foreach ($account_og_roles as $account_og_rol) {
+      if (in_array($account_og_rol, $special_roles)) {
+        if (!in_array($account_og_rol, $roles_with_permission)) {
+          $error_uids[] = $account_uid;
+        }
+      }
+    }
+  }
+
+  if (!empty($error_uids)) {
+    $message = t('You can\'t modify users with the roles: "' . implode('", "', $roles_without_permission)) . '"<br />';
+    $error_usernames = array();
+    foreach ($error_uids as $account_uid) {
+      $account = user_load($account_uid);
+      $error_usernames[] = $account->name;
+    }
+    $message .= t('Unselect the following users to continue: "' . implode('", "', $error_usernames) . '"');
+    form_set_error('accounts', $message);
+  }
+}
+
+/**
+ * Returns the role_label + (global role name)
+ */
+function og_newsletters_name_labelled($role_label, $role) {
+  if ($role_label != $role) {
+    $output = $role_label . ' (' . $role . ')';
+  }
+  else {
+    $output = $role;
+  }
+
+  return $output;
+}
+
+/**
+ * Returns the role label given a role name and a group
+ */
+function og_newsletters_role_label($group, $name) {
+  $label = $name;
+
+  if ($group->entity_type == 'node') {
+    $node = node_load($group->etid);
+    $tid = $node->field_cs_type['und'][0]['tid'];
+
+    $term = taxonomy_term_load($tid);
+
+    $field_name = 'field_cst_' . $name . '_role_label';
+    if (!empty($term->{$field_name})) {
+      $label = $term->{$field_name}['und'][0]['value'];
+    }
+  }
+
+  return $label;
+}
+
+/**
+ * Returns an array with all the global roles
+ */
+function og_newsletters_global_roles() {
+  return array(
+    OG_ANONYMOUS_ROLE,
+    OG_AUTHENTICATED_ROLE,
+    //'owner',
+    //'treasurer',
+  );
+}
+
+/**
+ * Helper function to send an email
+ */
+function og_newsletters_send_email($to, $subject, $body, $options = array()) {
+  // Extract options
+  $key = $options['key'];
+  $from = $options['from'];
+
+  if (empty($key)) {
+    $key = 'og_newsletters';
+  }
+  if (empty($from)) {
+    $from = NULL;
+  }
+
+  $lang = language_default();
+  $params = array(
+    'subject' => $subject,
+    'body' => $body,
+  );
+
+  if (!empty($options['bcc'])) {
+    $params['bcc'] = $options['bcc'];
+  }
+
+  if (!empty($options['reply_to'])) {
+    $params['reply_to'] = $options['reply_to'];
+  }
+
+  $result_message = drupal_mail('og_newsletters', $key, $to, $lang, $params, $from);
+  return $result_message;
+}
+
+/**
+ * Implements hook_mail().
+ */
+function og_newsletters_mail($key, &$message, $params) {
+  $message['subject'] = $params['subject'];
+  $message['body'][] = $params['body'];
+
+  if (!empty($params['bcc'])) {
+    $message['headers']['Bcc'] = $params['bcc'];
+  }
+
+  if (!empty($params['reply_to'])) {
+    $message['headers']['Reply-To'] = $params['reply_to'];
+  }
+}
+
+
+// Helper functions to add users to groups, get parent groups from groups, nids from gids, gids from nids, etc.
+
+/**
+ * Adds a user to a group if is not added already
+ *
+ * @todo update to OG 7.x-2.x
+ */
+function og_newsletters_add_user_to_group($uid, $gid) {
+  $account = user_load($uid);
+
+  $values = array(
+    'entity' => $account,
+  );
+
+  $results = og_group($gid, $values);
+  return $results;
+}
+
+/**
+ * Remove a user from a group
+ *
+ * @todo update to OG 7.x-2.x
+ */
+function og_newsletters_remove_user_from_group($uid, $gid) {
+  $account = user_load($uid);
+
+  $results = og_ungroup($gid, 'user', $account);
+  return $results;
+}
+
+/**
+ * Adds a role to a user of a group if is not added already
+ *
+ * @todo update to OG 7.x-2.x
+ */
+function og_newsletters_add_role_to_user($gid, $uid, $rid) {
+  // og_role_grant checks that the role is not added already
+  og_role_grant($gid, $uid, $rid);
+}
+
+/**
+ * Removes a role from a user of a group
+ *
+ * @todo update to OG 7.x-2.x
+ */
+function og_newsletters_remove_role_from_user($gid, $uid, $rid) {
+  // og_role_revoke checks that the user has the role
+  og_role_revoke($gid, $uid, $rid);
+}
+
+/**
+ * Returns an array of groups gids that the user belongs to
+ *
+ * @todo update to OG 7.x-2.x
+ */
+function og_newsletters_get_user_gids($uid) {
+  $sql = 'SELECT gid FROM {og_membership} WHERE entity_type = :entity_type AND etid = :etid';
+  $results = db_query($sql, array(':etid' => $uid, ':entity_type' => 'user'));
+
+  $gids = array();
+
+  foreach ($results as $result) {
+    $gids[] = $result->gid;
+  }
+
+  return $gids;
+}
+
+/**
+ * Returns the parent group (gid) of a group or FALSE if the groups hasn't got parent
+ *
+ * @todo update to OG 7.x-2.x
+ */
+function og_newsletters_get_parent_gid_from_gid($gid) {
+  $nid = og_newsletters_get_nid_from_gid($gid);
+  if (empty($nid)) {
+    return FALSE;
+  }
+  $node = node_load($nid);
+  $groups = og_get_entity_groups('node', $node);
+  $groups = array_values($groups);
+  return $groups[0];
+}
+
+/**
+ * Given a group gid returns the corresponding node nid
+ *
+ * @todo update to OG 7.x-2.x
+ */
+function og_newsletters_get_nid_from_gid($gid) {
+  $group = og_load($gid);
+  if (empty($group)) {
+    return FALSE;
+  }
+  $nid = $group->etid;
+  return $nid;
+}
+
+/**
+ * Given a group node nid returns the corresponding group gid
+ *
+ * @todo update to OG 7.x-2.x
+ */
+function og_newsletters_get_gid_from_nid($nid) {
+  $groups = og_get_group_ids('node', array($nid));
+  $groups = array_values($groups);
+  return $groups[0];
+}
+
+/**
+ * Given a group gid returns an array with the group gids of all its subgroups
+ *
+ * @todo update to OG 7.x-2.x
+ */
+function og_newsletters_get_childs_gids_from_gid($gid) {
+  $sql = 'SELECT entity_id FROM {field_data_group_audience} WHERE entity_type = :node_type AND group_audience_gid = :gid';
+  $results = db_query($sql, array(':gid' => $gid, ':node_type' => 'node'));
+
+  $gids = array();
+
+  foreach ($results as $result) {
+    $gids[] = og_newsletters_get_gid_from_nid($result->entity_id);
+  }
+
+  return $gids;
+}
+
+/**
+ * Given a OG role rid returns the corresponding role name
+ *
+ * @todo update to OG 7.x-2.x
+ */
+function og_newsletters_get_role_name_from_rid($rid) {
+  $output = FALSE;
+  $role = og_role_load($rid);
+  if (!empty($role)) {
+    $output = $role->name;
+  }
+  return $output;
+}
+
+/**
+ * Add newsletter subscription to a group for a logged in user (if is not added already)
+ */
+function og_newsletters_add_newsletter_subscription_to_group($group_nid, $account_uid) {
+  $account = user_load($account_uid);
+  $email = $account->mail;
+  $name = $account->name;
+
+  $ns = og_newsletters_insert_newsletter_subscription($group_nid, $email, $name, $account_uid);
+  return $ns;
+}
+
+/**
+ * Create a newsletter subscription programmatically
+ * Returns
+ *      1: Success
+ *     -1: The email was already subscribed
+ *     -2: The email is incorrect
+ *  FALSE: Other error
+ */
+function og_newsletters_insert_newsletter_subscription($group_nid, $email, $name, $author = 0) {
+  // Check that the email is correct
+  if (!valid_email_address($email)) {
+    return - 2;
+  }
+
+  // Check that the subscription doesn't exist already
+  if (og_newsletters_email_is_subscribed_to_group($email, $group_nid)) {
+    return - 1;
+  }
+
+  // Create subscription
+  $ns_array = array();
+  $ns_array['uid'] = $author;
+  $ns_array['type'] = 'og_newsletter_subscription';
+  $ns_array['field_og_newsletter_subscription_email']['und'][0]['email'] = $email;
+  $ns_array['field_og_newsletter_subscription_name']['und'][0]['value'] = $name;
+  $ns_array['field_og_newsletter_subscription_group']['und'][0]['target_id'] = $group_nid;
+
+  $ns = entity_create('og_newsletter_subscription', $ns_array)->save();
+
+  return $ns;
+}
+
+/**
+ * Checks if an email address is already subscribed to a group
+ */
+function og_newsletters_email_is_subscribed_to_group($email, $group_nid) {
+  $group_subscriptions = og_newsletters_get_newsletter_subscribers($group_nid);
+  foreach ($group_subscriptions as $subscription) {
+    if ($subscription['email'] == $email) {
+      return TRUE;
+    }
+  }
+
+  return FALSE;
+}
+
+/**
+ * Custom version of views_embed_view
+ *
+ * views_embed_view doesn't work well with exposed filters (see http://drupal.org/node/525592#comment-1833824). Here we are:
+ *   - Overriding the path
+ *   - Removing any access checking. We must be sure that the view is only embedded in pages that already
+ *     checks the access
+ */
+function _og_newsletters_views_embed_view($name, $display_id = 'default') {
+  $args = func_get_args();
+  // remove $name
+  array_shift($args);
+  if (count($args)) {
+    // remove $display_id
+    array_shift($args);
+  }
+
+  $view = views_get_view($name);
+  if (!$view || !$view->access($display_id)) {
+    return;
+  }
+
+  $view->override_path = $_GET['q'];
+
+  return $view->preview($display_id, $args);
+}
+
+/**
+ * Helper function used by og_newsletters_csv_to_array.
+ */
+function _og_newsletters_csvstring_to_array(&$string, $CSV_SEPARATOR = ';', $CSV_ENCLOSURE = '"', $CSV_LINEBREAK = "\n") {
+  $o = array();
+
+  $cnt = strlen($string);
+  $esc = FALSE;
+  $escesc = FALSE;
+  $num = 0;
+  $i = 0;
+  while ($i < $cnt) {
+    $s = $string[$i];
+
+    if ($s == $CSV_LINEBREAK) {
+      if ($esc) {
+        $o[$num] .= $s;
+      }
+      else {
+        $i++;
+        break;
+      }
+    }
+    elseif ($s == $CSV_SEPARATOR) {
+      if ($esc) {
+        $o[$num] .= $s;
+      }
+      else {
+        $num++;
+        $esc = FALSE;
+        $escesc = FALSE;
+      }
+    }
+    elseif ($s == $CSV_ENCLOSURE) {
+      if ($escesc) {
+        $o[$num] .= $CSV_ENCLOSURE;
+        $escesc = FALSE;
+      }
+
+      if ($esc) {
+        $esc = FALSE;
+        $escesc = TRUE;
+      }
+      else {
+        $esc = TRUE;
+        $escesc = FALSE;
+      }
+    }
+    else {
+      if ($escesc) {
+        $o[$num] .= $CSV_ENCLOSURE;
+        $escesc = FALSE;
+      }
+
+      $o[$num] .= $s;
+    }
+
+    $i++;
+  }
+
+  //  $string = substr($string, $i);
+
+  return $o;
+}
+
+/**
+ * Converts a csv file to an array.
+ *
+ * @param $filename Path to the file
+ * @param $delimiter The delimiter used to separate fields
+ * @param $titles If is set to TRUE the first line of the file will be used as keys of the array. If is FALSE the array index will be numerical
+ *
+ * @return The resulting array
+ */
+function og_newsletters_csv_to_array($filename, $titles = TRUE, $options = array()) {
+
+  // Extract options
+  $csv_separator = $options['csv_separator'] ? $options['csv_separator'] : NULL;
+  $csv_enclosure = $options['csv_enclosure'] ? $options['csv_enclosure'] : NULL;
+  $csv_linebreak = $options['csv_linebreak'] ? $options['csv_linebreak'] : NULL;
+
+
+  $lines = array();
+  $num_line = 0;
+  $headers = array();
+
+  if (($handle = fopen($filename, "r")) !== FALSE) {
+    while (($data_raw = fgets($handle))) {
+      $data = _og_newsletters_csvstring_to_array($data_raw, $csv_separator, $csv_enclosure, $csv_linebreak);
+
+      if ($num_line == 0) {
+        if ($titles) {
+          $headers = $data;
+        }
+        else {
+          $headers = array();
+          foreach ($data as $key => $value) {
+            $headers[] = $key;
+          }
+        }
+
+        //Headers can contain stuff like \n. Let's clean it
+        foreach ($headers as $i => $header) {
+          $headers[$i] = trim($header);
+        }
+      }
+      else {
+
+        foreach ($data as $key => $d) {
+          $lines[$num_line - 1][$headers[$key]] = $d;
+        }
+        //$lines[]=$data;
+      }
+
+      $num_line++;
+    }
+    fclose($handle);
+  }
+  else {
+    //Error opening file, return FALSE
+    return FALSE;
+  }
+  return $lines;
+}
